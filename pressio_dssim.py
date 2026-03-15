@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 LibPressio external metric: compute DSSIM between original (-i) and decompressed (-W) data.
@@ -54,25 +55,21 @@ def _load_array(path: str, dtype, dims: List[int]) -> np.ndarray:
             arr = arr.reshape(tuple(dims))
     return arr
 
-def _compute_dssim(input_file: np.ndarray, output_file: np.ndarray) -> float:  
-    dtype = np.float32 if dtype == "float" else np.float64
-    
-    input_data = np.fromfile(input_file, dtype=dtype).reshape(dims)
-    output_data = np.fromfile(decompressed_file, dtype=dtype).reshape(dims)
-
-    smin = min(input_data.min(), output_data.min())
-    smax = max(input_data.max(), output_data.max())
+def _compute_dssim(orig: np.ndarray, dec: np.ndarray) -> float:
+    # Arrays are already loaded/reshaped in main(); compute DSSIM directly.
+    smin = min(orig.min(), dec.min())
+    smax = max(orig.max(), dec.max())
     r = smax - smin
     if r == 0:
         if smax == 0:
-            sc_a1 = input_data
-            sc_a2 = output_data
+            sc_a1 = orig
+            sc_a2 = dec
         else:
-            sc_a1 = input_data / smax
-            sc_a2 = output_data / smax
+            sc_a1 = orig / smax
+            sc_a2 = dec / smax
     else:
-        sc_a1 = (input_data - smin) / r
-        sc_a2 = (output_data - smin) / r
+        sc_a1 = (orig - smin) / r
+        sc_a2 = (dec - smin) / r
     sc_a1 = np.round(sc_a1 * 255) / 255
     sc_a2 = np.round(sc_a2 * 255) / 255
     
