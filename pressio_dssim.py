@@ -23,7 +23,7 @@ import os
 import sys
 from typing import List
 from skimage.metrics import structural_similarity as ssim
-# from scipy.stats import ks_2samp
+
 
 # Avoid picking up libpressio-env's Python packages (numpy for py3.11 etc.)
 os.environ.pop("PYTHONPATH", None)
@@ -55,78 +55,19 @@ def _load_array(path: str, dtype, dims: List[int]) -> np.ndarray:
             arr = arr.reshape(tuple(dims))
     return arr
 
-def _compute_dssim(orig: np.ndarray, dec: np.ndarray) -> float:
-    # Arrays are already loaded/reshaped in main(); compute DSSIM directly.
-    smin = min(orig.min(), dec.min())
-    smax = max(orig.max(), dec.max())
-    r = smax - smin
-    if r == 0:
-        if smax == 0:
-            sc_a1 = orig
-            sc_a2 = dec
-        else:
-            sc_a1 = orig / smax
-            sc_a2 = dec / smax
-    else:
-        sc_a1 = (orig - smin) / r
-        sc_a2 = (dec - smin) / r
-    sc_a1 = np.round(sc_a1 * 255) / 255
-    sc_a2 = np.round(sc_a2 * 255) / 255
-    
-    ssim_val = ssim(
-        sc_a1,
-        sc_a2,
-        data_range=1.0,
-        gaussian_weights=True,
-        sigma=1.5,
-        win_size=11,
-        K1=1e-4,
-        K2=1e-4,
-        use_sample_covariance=False
-    )
+def compute_metrics(orig: np.ndarray, dec: np.ndarray):
+    """Build vector metrics consumed by downstream QOI scripts.
 
-    return ssim_val
+    For DSSIM/CESM raw fields, we use element-wise pairing:
+    - dists: absolute difference between original and decompressed samples
+    - mass_orig: original sample values
+    - mass_dec: decompressed sample values
+    """
+    mass_orig = np.asarray(orig, dtype=np.float64)
+    mass_dec = np.asarray(dec, dtype=np.float64)
+    dists = np.abs(mass_orig - mass_dec).ravel()
+    return dists, mass_orig, mass_dec
 
-# def _compute_dssim(orig: np.ndarray, dec: np.ndarray) -> float:
-#     """Compute a global SSIM-style index using only NumPy, then convert to DSSIM.
-
-#     This is a simplified SSIM over the entire volume (no sliding window), using the
-#     standard SSIM formula on flattened, normalized data.
-#     """
-#     # Normalize to [0, 1] jointly
-#     smin = float(min(orig.min(), dec.min()))
-#     smax = float(max(orig.max(), dec.max()))
-#     if not np.isfinite(smin) or not np.isfinite(smax) or smax == smin:
-#         # Degenerate or constant data: treat as identical
-#         return 0.0
-
-#     x = (orig - smin) / (smax - smin)
-#     y = (dec - smin) / (smax - smin)
-
-#     x = x.ravel().astype(np.float64)
-#     y = y.ravel().astype(np.float64)
-
-#     mu_x = x.mean()
-#     mu_y = y.mean()
-#     sigma_x2 = ((x - mu_x) ** 2).mean()
-#     sigma_y2 = ((y - mu_y) ** 2).mean()
-#     sigma_xy = ((x - mu_x) * (y - mu_y)).mean()
-
-#     # Standard SSIM constants for L=1.0
-#     K1, K2, L = 0.01, 0.03, 1.0
-#     C1 = (K1 * L) ** 2
-#     C2 = (K2 * L) ** 2
-
-#     num = (2 * mu_x * mu_y + C1) * (2 * sigma_xy + C2)
-#     den = (mu_x ** 2 + mu_y ** 2 + C1) * (sigma_x2 + sigma_y2 + C2)
-#     if den == 0:
-#         ssim_val = 1.0
-#     else:
-#         ssim_val = float(num / den)
-
-#     # Clamp to [-1, 1] to be safe
-#     ssim_val = max(min(ssim_val, 1.0), -1.0)
-#     return float((1.0 - ssim_val) / 2.0)
 
 
 def _output_default(reason: str = "") -> None:
@@ -184,6 +125,7 @@ def main(argv: List[str] = None) -> int:
 
         orig = _load_array(args.input, dtype, dims)
         dec = _load_array(args.decompressed, dtype, dims)
+        #改成mass_dist 那些
 
         if orig.size == 0 or dec.size == 0:
             _output_default(f"empty arrays: orig.size={orig.size}, dec.size={dec.size}")
@@ -194,10 +136,14 @@ def main(argv: List[str] = None) -> int:
             )
             return 0
 
-        dssim_val = _compute_dssim(orig, dec)
-        print("external:api=json:1", flush=True)
-        print(json.dumps({"dssim": dssim_val}), flush=True)
+        dists, mass_orig, mass_dec = compute_metrics(orig, dec)
+
+        np.save("dists.npy", dists)
+        np.save("mass_orig.npy", mass_orig)
+        np.save("mass_dec.npy", mass_dec)   
         return 0
+
+        
     except Exception as e:
         print(f"pressio_dssim: failed to compute dssim: {e}", file=sys.stderr)
         _output_default()
