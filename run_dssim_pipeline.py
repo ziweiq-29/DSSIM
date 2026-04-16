@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 # Keep this process isolated from libpressio-env Python path pollution.
 os.environ.pop("PYTHONPATH", None)
@@ -70,6 +71,7 @@ def main(argv=None) -> int:
         cmd.extend(["--dim", str(d)])
 
     out_dir = os.path.dirname(os.path.abspath(external_script))
+    app_t0 = time.perf_counter()
     result = subprocess.run(
         cmd,
         stdout=subprocess.PIPE,
@@ -78,6 +80,9 @@ def main(argv=None) -> int:
         env=env,
         cwd=out_dir,
     )
+    app_eval_sec = time.perf_counter() - app_t0
+    # Expose external app timing to the caller log stream.
+    print(f"external:app_eval_sec={app_eval_sec:.9f}", file=sys.stderr, flush=True)
     if result.stderr:
         sys.stderr.write(result.stderr)
     if result.returncode != 0:
@@ -105,6 +110,7 @@ def main(argv=None) -> int:
                 "dists": dists.tolist(),
                 "mass_orig": mass_orig.tolist(),
                 "mass_dec": mass_dec.tolist(),
+                "app_eval_sec": app_eval_sec,
             }
         ),
         file=sys.stdout,flush=True,
